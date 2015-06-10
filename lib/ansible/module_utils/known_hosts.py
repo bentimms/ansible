@@ -40,23 +40,24 @@ def add_git_host_key(module, url, accept_hostkey=True, create_dir=True):
 
     """ idempotently add a git url hostkey """
 
-    fqdn = get_fqdn(url)
+    fqdn, port = get_fqdn_and_port(url)
 
     if fqdn:
         known_host = check_hostkey(module, fqdn)
         if not known_host:
             if accept_hostkey:
-                rc, out, err = add_host_key(module, fqdn, create_dir=create_dir)
+                rc, out, err = add_host_key(module, fqdn, port=port, create_dir=create_dir)
                 if rc != 0:
                     module.fail_json(msg="failed to add %s hostkey: %s" % (fqdn, out + err))
             else:
                 module.fail_json(msg="%s has an unknown hostkey. Set accept_hostkey to True or manually add the hostkey prior to running the git module" % fqdn)
 
-def get_fqdn(repo_url):
+def get_fqdn_and_port(repo_url):
 
     """ chop the hostname out of a giturl """
 
     result = None
+    port = None
     if "@" in repo_url and "://" not in repo_url:
         # most likely a git@ or ssh+git@ type URL
         repo_url = repo_url.split("@", 1)[1]
@@ -77,20 +78,22 @@ def get_fqdn(repo_url):
         if parts[1] != '':
             result = parts[1]
             if ":" in result:
-                result = result.split(":")[0]
+                result, port = result.split(":")
             if "@" in result:
                 result = result.split("@", 1)[1]
 
-    return result
+    return result, port
 
-def check_hostkey(module, fqdn):
-   return not not_in_host_file(module, fqdn)
+def check_hostkey(module, fqdn, port=None):
+    return not not_in_host_file(module, fqdn, port)
 
 # this is a variant of code found in connection_plugins/paramiko.py and we should modify
 # the paramiko code to import and use this.
 
-def not_in_host_file(self, host):
+def not_in_host_file(self, host, port=None):
 
+    if port:
+        host = "[%s]:%s" % (host, port)
 
     if 'USER' in os.environ:
         user_host_file = os.path.expandvars("~${USER}/.ssh/known_hosts")
@@ -141,7 +144,7 @@ def not_in_host_file(self, host):
     return True
 
 
-def add_host_key(module, fqdn, key_type="rsa", create_dir=False):
+def add_host_key(module, fqdn, key_type="rsa", port=None, create_dir=False):
 
     """ use ssh-keyscan to add the hostkey """
 
@@ -167,9 +170,14 @@ def add_host_key(module, fqdn, key_type="rsa", create_dir=False):
     elif not os.path.isdir(user_ssh_dir):
         module.fail_json(msg="%s is not a directory" % user_ssh_dir)
 
-    this_cmd = "%s -t %s %s" % (keyscan_cmd, key_type, fqdn)
+    this_cmd = [keyscan_cmd, '-t', key_type]
+    if port:
+        this_cmd.extend(['-p', port])
+    this_cmd.append(fqdn)
 
-    rc, out, err = module.run_command(this_cmd)
+    rc, out, err = module.run_command(' '.join(this_cmd))
+    if port:
+        out = out.replace(fqdn, "[%s]:%s" % (fqdn, port))
     module.append_to_file(user_host_file, out)
 
     return rc, out, err
