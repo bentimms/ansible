@@ -43,7 +43,7 @@ def add_git_host_key(module, url, accept_hostkey=True, create_dir=True):
     fqdn, port = get_fqdn_and_port(url)
 
     if fqdn:
-        known_host = check_hostkey(module, fqdn)
+        known_host = check_hostkey(module, fqdn, port)
         if not known_host:
             if accept_hostkey:
                 rc, out, err = add_host_key(module, fqdn, port=port, create_dir=create_dir)
@@ -72,7 +72,7 @@ def get_fqdn_and_port(repo_url):
         parts = urlparse.urlparse(repo_url)
         if 'ssh' not in parts[0] and 'git' not in parts[0]:
             # don't try and scan a hostname that's not ssh
-            return None
+            return None, None
         # parts[1] will be empty on python2.4 on ssh:// or git:// urls, so
         # ensure we actually have a parts[1] before continuing.
         if parts[1] != '':
